@@ -6,4 +6,5 @@ members = [
   "./sta-rs",
   "./star-wasm",
   "./ppoprf",
+  "./ppoprf/ffi",
 ]
