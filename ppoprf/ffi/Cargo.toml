@@ -1,0 +1,9 @@
+[package]
+name = "ffi"
+version = "0.1.0"
+authors = ["Ralph Giles <rgiles@brave.com>"]
+description = "C API wrapper for the STAR randomness server"
+edition = "2021"
+
+[dependencies]
+ppoprf = { path = "../" }
