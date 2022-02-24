@@ -30,8 +30,8 @@ pub const COMPRESSED_POINT_LEN: usize = 32;
 pub const DIGEST_LEN: usize = 64;
 
 pub struct ProofDLEQ {
-    c: Scalar,
-    s: Scalar,
+    pub c: Scalar,
+    pub s: Scalar,
 }
 impl ProofDLEQ {
     pub fn new(
@@ -82,8 +82,8 @@ pub type ServerPublicKey = Vec<RistrettoPoint>;
 
 // The wrapper for PPOPRF evaluations (similar to standard OPRFs)
 pub struct Evaluation {
-    output: CompressedRistretto,
-    proof: Option<ProofDLEQ>,
+    pub output: CompressedRistretto,
+    pub proof: Option<ProofDLEQ>,
 }
 
 // The `Server` runs the server-side component of the PPOPRF protocol.
