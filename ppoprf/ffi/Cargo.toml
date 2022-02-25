@@ -5,6 +5,9 @@ authors = ["Ralph Giles <rgiles@brave.com>"]
 description = "C API wrapper for the STAR randomness server"
 edition = "2021"
 
+[lib]
+crate-type = [ "staticlib" ]
+
 [dependencies]
 ppoprf = { path = "../" }
 curve25519-dalek = "3.2.0"
