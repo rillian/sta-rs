@@ -27,15 +27,15 @@ pub extern "C" fn randomness_server_create() -> *mut RandomnessServer {
 /// The handle returned by randomness_server_create() must be passed
 /// to this function to release the associated storage.
 #[no_mangle]
-pub extern "C" fn randomness_server_release(ptr: *mut RandomnessServer) {
+pub unsafe extern "C" fn randomness_server_release(ptr: *mut RandomnessServer) {
     assert!(!ptr.is_null());
-    let server = unsafe { Box::from_raw(ptr) };
+    let server = Box::from_raw(ptr);
     drop(server);
 }
 
 /// Evaluate the PPOPRF for the given point.
 #[no_mangle]
-pub extern "C" fn randomness_server_eval(
+pub unsafe extern "C" fn randomness_server_eval(
     ptr: *const RandomnessServer,
     input: *const u8,
     md_index: usize,
@@ -48,31 +48,29 @@ pub extern "C" fn randomness_server_eval(
     assert!(!output.is_null());
 
     // Convert our *const argument to a &ppoprf::Server without taking ownership.
-    let server = unsafe { &(*ptr).inner };
+    let server = &(*ptr).inner;
     // Wrap the provided compressed Ristretto point in the expected type.
     // Unfortunately from_slice() copies the data here.
-    let point = unsafe {
+    let point = {
         let bytes = std::slice::from_raw_parts(input, ppoprf::COMPRESSED_POINT_LEN);
         ppoprf::CompressedRistretto::from_slice(bytes)
     };
     // Evaluate the requested point.
     let result = server.eval(&point, md_index, verifiable);
     // Copy the resulting point into the output buffer.
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            result.output.as_bytes().as_ptr(),
-            output,
-            ppoprf::COMPRESSED_POINT_LEN,
-        );
-    }
+    std::ptr::copy_nonoverlapping(
+        result.output.as_bytes().as_ptr(),
+        output,
+        ppoprf::COMPRESSED_POINT_LEN,
+    );
 }
 
 /// Puncture the given md value from the PPOPRF.
 #[no_mangle]
-pub extern "C" fn randomness_server_puncture(ptr: *mut RandomnessServer, md: u8) {
+pub unsafe extern "C" fn randomness_server_puncture(ptr: *mut RandomnessServer, md: u8) {
     // Convert our *const to a &ppoprf::Server without taking ownership.
     assert!(!ptr.is_null());
-    let server = unsafe { &mut (*ptr).inner };
+    let server = &mut (*ptr).inner;
 
     // The ffi signature takes a u8 by value, but the underlying
     // api wants a slice to allow more than 8 bits of metadata tag.
@@ -96,7 +94,9 @@ mod tests {
     fn unused_instance() {
         let server = randomness_server_create();
         assert!(!server.is_null());
-        randomness_server_release(server);
+        unsafe {
+            randomness_server_release(server);
+        }
     }
 
     #[test]
@@ -108,15 +108,17 @@ mod tests {
         // Evaluate a test point.
         let point = CompressedRistretto::default();
         let mut result = Vec::with_capacity(ppoprf::COMPRESSED_POINT_LEN);
-        randomness_server_eval(
-            server,
-            point.as_bytes().as_ptr(),
-            0,
-            false,
-            result.as_mut_ptr(),
-        );
-        // FIXME: verify result!
-        randomness_server_release(server);
+        unsafe {
+            randomness_server_eval(
+                server,
+                point.as_bytes().as_ptr(),
+                0,
+                false,
+                result.as_mut_ptr(),
+            );
+            // FIXME: verify result!
+            randomness_server_release(server);
+        }
     }
 
     #[test]
