@@ -12,7 +12,12 @@ pub struct RandomnessServer {
 
 /// Construct a new server instance and return an opaque handle to it.
 ///
-/// The handle must be freed by calling randomness_server_release().
+/// # Safety
+///
+/// The returned pointer is allocated by Rust and must be freed by
+/// the same allocator. The handle should be passed to the correspoding
+/// randomness_server_release() function to release the associated
+/// memory.
 // FIXME: Pass a [u8] and length for the md initialization.
 #[no_mangle]
 pub extern "C" fn randomness_server_create() -> *mut RandomnessServer {
@@ -24,8 +29,13 @@ pub extern "C" fn randomness_server_create() -> *mut RandomnessServer {
 
 /// Release memory associated with a server instance.
 ///
-/// The handle returned by randomness_server_create() must be passed
-/// to this function to release the associated storage.
+/// Pass the handle returned by randomness_server_create() to this
+/// function to release the associated resources.
+///
+/// # Safety
+///
+/// The `ptr` argument must point to a valid RandomnessServer instance
+/// allocated by Rust.
 #[no_mangle]
 pub unsafe extern "C" fn randomness_server_release(ptr: *mut RandomnessServer) {
     assert!(!ptr.is_null());
@@ -34,6 +44,15 @@ pub unsafe extern "C" fn randomness_server_release(ptr: *mut RandomnessServer) {
 }
 
 /// Evaluate the PPOPRF for the given point.
+///
+/// # Safety
+///
+/// The `ptr` argument must point to a valid RandomnessServer state
+/// struct, such as is returned by randomness_server_create().
+///
+/// The `input` and `output` arguments must point to accessible areas
+/// of memory with
+/// the correct amount of space available.
 #[no_mangle]
 pub unsafe extern "C" fn randomness_server_eval(
     ptr: *const RandomnessServer,
@@ -66,6 +85,11 @@ pub unsafe extern "C" fn randomness_server_eval(
 }
 
 /// Puncture the given md value from the PPOPRF.
+///
+/// # Safety
+///
+/// The `ptr` argument must point to a valid RandomnessServer state
+/// struct, such as is returned by randomness_server_create().
 #[no_mangle]
 pub unsafe extern "C" fn randomness_server_puncture(ptr: *mut RandomnessServer, md: u8) {
     // Convert our *const to a &ppoprf::Server without taking ownership.
