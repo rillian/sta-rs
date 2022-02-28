@@ -1,10 +1,12 @@
 on:
   push:
     branches:
-    - [ main, ppoprf-ffi ]
+    - main
+    - ppoprf-ffi
   pull_request:
     branches:
-    - [ main, ppoprf-ffi ]
+    - main
+    - ppoprf-ffi
   schedule:
     - cron: "42 3 5 * *" # Run once a month to check for bitrot
 
