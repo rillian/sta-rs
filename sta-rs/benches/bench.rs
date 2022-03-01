@@ -111,47 +111,41 @@ fn benchmark_end_to_end(c: &mut Criterion) {
     });
 }
 
+fn generate_triples(params: &Params, epoch: &str, maybe_ppoprf: Option<&PPOPRFServer>) -> Vec<Triple> {
+    iter::repeat_with(|| {
+        Triple::generate(
+            &client_zipf(
+                params.n,
+                params.s,
+                params.threshold,
+                epoch,
+                get_aux_data(params.aux_data),
+            ),
+            maybe_ppoprf,
+            )
+    })
+    .take(params.clients)
+    .collect()
+}
+
 fn get_triples(params: &Params, epoch: &str) -> Vec<Triple> {
-    let triples: Vec<Triple>;
     if !params.local {
         #[cfg(not(feature = "star2"))]
         unimplemented!();
         #[cfg(feature = "star2")]
         {
             let mut ppoprf_server = PPOPRFServer::new(&[b"t".to_vec()]);
-            triples = iter::repeat_with(|| {
-                Triple::generate(
-                    &client_zipf(
-                        params.n,
-                        params.s,
-                        params.threshold,
-                        epoch,
-                        get_aux_data(params.aux_data),
-                    ),
-                    Some(&ppoprf_server),
-                )
-            })
-            .take(params.clients)
-            .collect();
+            let triples = generate_triples(
+                params, epoch, Some(&ppoprf_server),
+            );
             ppoprf_server.puncture(epoch.as_bytes());
+            triples
         }
     } else {
-        triples = iter::repeat_with(|| {
-            Triple::generate(
-                &client_zipf(
-                    params.n,
-                    params.s,
-                    params.threshold,
-                    epoch,
-                    get_aux_data(params.aux_data),
-                ),
-                None,
-            )
-        })
-        .take(params.clients)
-        .collect();
+        generate_triples(
+            params, epoch, None,
+        )
     }
-    triples
 }
 
 fn get_aux_data(do_it: bool) -> Option<Vec<u8>> {
