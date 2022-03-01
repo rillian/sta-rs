@@ -1,7 +1,7 @@
 package main
 
 /*
-#cgo LDFLAGS: -L ../../target/debug -lffi
+#cgo LDFLAGS: -L ../../target/debug -lffi -lpthread -ldl -static
 #cgo CFLAGS: -I include
 #include "ppoprf.h"
 */
