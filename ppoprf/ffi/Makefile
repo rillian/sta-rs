@@ -7,6 +7,7 @@ all: $(FFIDHR) test_ffi
 
 check: test_ffi
 	./test_ffi
+	go vet
 	go test
 
 clean:
