@@ -28,6 +28,7 @@ use strobe_rng::StrobeRng;
 use strobe_rs::{SecParam, Strobe};
 
 use crate::{ggm::GGM, PPRF};
+pub use crate::PPRFError;
 
 pub const COMPRESSED_POINT_LEN: usize = 32;
 pub const DIGEST_LEN: usize = 64;
@@ -121,7 +122,7 @@ pub struct Server {
     pprf: GGM,
 }
 impl Server {
-    pub fn new(mds: &[Vec<u8>]) -> Self {
+    pub fn new(mds: &[Vec<u8>]) -> Result<Self, PPRFError> {
         let mut csprng = OsRng;
         let oprf_key = Scalar::random(&mut csprng);
         let mut public_key = Vec::with_capacity(mds.len() + 1);
@@ -129,26 +130,29 @@ impl Server {
         let pprf = GGM::setup();
         for md in mds {
             let mut tag = [0u8; 32];
-            pprf.eval(md, &mut tag);
+            pprf.eval(md, &mut tag)?;
             let ts = Scalar::from_bytes_mod_order(tag);
             public_key.push(ts * RISTRETTO_BASEPOINT_POINT);
         }
-        Self {
+        Ok(Self {
             oprf_key,
             public_key,
             mds: mds.to_vec(),
             pprf,
-        }
+        })
     }
 
-    pub fn eval(&self, p: &Point, md_idx: usize, verifiable: bool) -> Evaluation {
+    pub fn eval(&self, p: &Point, md_idx: usize, verifiable: bool) -> Result<Evaluation, PPRFError> {
         let p = p.0;
         let point = p.decompress().unwrap();
         if md_idx >= self.mds.len() {
-            panic!("Specified tag index is out of bounds for stored tags, indicated index {} is not in [0..{})", md_idx, self.mds.len());
+            return Err(PPRFError::BadTagIndex {
+                index: md_idx,
+                tag_size: self.mds.len()
+            });
         }
         let mut tag = [0u8; 32];
-        self.pprf.eval(&self.mds[md_idx], &mut tag);
+        self.pprf.eval(&self.mds[md_idx], &mut tag)?;
         let ts = Scalar::from_bytes_mod_order(tag);
         let tagged_key = self.oprf_key + ts;
         let exponent = tagged_key.invert();
@@ -163,14 +167,14 @@ impl Server {
                 &point,
             ));
         }
-        Evaluation {
+        Ok(Evaluation {
             output: eval_point.compress(),
             proof,
-        }
+        })
     }
 
-    pub fn puncture(&mut self, md: &[u8]) {
-        self.pprf.puncture(md);
+    pub fn puncture(&mut self, md: &[u8]) -> Result<(), PPRFError> {
+        self.pprf.puncture(md)
     }
 
     pub fn get_public_key(&self) -> ServerPublicKey {
@@ -240,7 +244,7 @@ pub fn end_to_end_evaluation(
     out: &mut [u8],
 ) {
     let (blinded_point, r) = Client::blind(input);
-    let evaluated = server.eval(&Point(blinded_point), md_idx, verify);
+    let evaluated = server.eval(&Point(blinded_point), md_idx, verify).unwrap();
     if verify
         && !Client::verify(
             &server.public_key,
@@ -279,16 +283,16 @@ mod tests {
         md_idx: usize,
     ) -> (CompressedRistretto, CompressedRistretto) {
         let (blinded_point, r) = Client::blind(c_input);
-        let evaluated = server.eval(&blinded_point, md_idx, false);
+        let evaluated = server.eval(&Point(blinded_point), md_idx, false).unwrap();
         let unblinded = Client::unblind(&evaluated.output, &r);
 
         let mut chk_inp = [0u8; 64];
         strobe_hash(c_input, "ppoprf_derive_client_input", &mut chk_inp);
         let chk_eval = server.eval(
-            &RistrettoPoint::from_uniform_bytes(&chk_inp).compress(),
+            &Point(RistrettoPoint::from_uniform_bytes(&chk_inp).compress()),
             md_idx,
             false,
-        );
+        ).unwrap();
         (unblinded, chk_eval.output)
     }
 
@@ -298,7 +302,7 @@ mod tests {
         md_idx: usize,
     ) -> (CompressedRistretto, CompressedRistretto) {
         let (blinded_point, r) = Client::blind(c_input);
-        let evaluated = server.eval(&blinded_point, md_idx, true);
+        let evaluated = server.eval(&Point(blinded_point), md_idx, true).unwrap();
         if !Client::verify(
             &server.public_key,
             &blinded_point.decompress().unwrap(),
@@ -312,15 +316,15 @@ mod tests {
         let mut chk_inp = [0u8; 64];
         strobe_hash(c_input, "ppoprf_derive_client_input", &mut chk_inp);
         let chk_eval = server.eval(
-            &RistrettoPoint::from_uniform_bytes(&chk_inp).compress(),
+            &Point(RistrettoPoint::from_uniform_bytes(&chk_inp).compress()),
             md_idx,
             false,
-        );
+        ).unwrap();
         (unblinded, chk_eval.output)
     }
 
     fn end_to_end_no_verify(mds: &[Vec<u8>], md_idx: usize) {
-        let server = Server::new(mds);
+        let server = Server::new(mds).unwrap();
         let input = b"some_test_input";
         let (unblinded, chk_eval) = end_to_end_eval_check_no_proof(&server, input, md_idx);
         assert_eq!(chk_eval, unblinded);
@@ -332,7 +336,7 @@ mod tests {
     }
 
     fn end_to_end_verify(mds: &[Vec<u8>], md_idx: usize) {
-        let server = Server::new(mds);
+        let server = Server::new(mds).unwrap();
         let input = b"some_test_input";
         let (unblinded, chk_eval) = end_to_end_eval_check(&server, input, md_idx);
         assert_eq!(chk_eval, unblinded);
@@ -388,10 +392,10 @@ mod tests {
     #[should_panic(expected = "NoPrefixFound")]
     fn end_to_end_puncture() {
         let mds = vec![b"a".to_vec(), b"t".to_vec()];
-        let mut server = Server::new(&mds);
+        let mut server = Server::new(&mds).unwrap();
         let (unblinded, chk_eval) = end_to_end_eval_check_no_proof(&server, b"some_test_input", 1);
         assert_eq!(chk_eval, unblinded);
-        server.puncture(b"t");
+        server.puncture(b"t").unwrap();
         let (unblinded1, chk_eval1) = end_to_end_eval_check_no_proof(&server, b"another_input", 0);
         assert_eq!(chk_eval1, unblinded1);
         end_to_end_eval_check_no_proof(&server, b"some_test_input", 1);

@@ -24,7 +24,8 @@
 //! ```
 
 use actix_web::middleware::Logger;
-use actix_web::{get, post, web};
+use actix_web::{get, post, web, error::ResponseError,
+    http::StatusCode, HttpResponse};
 use env_logger::Env;
 use dotenv::dotenv;
 use std::env;
@@ -35,6 +36,7 @@ use std::sync::{Arc, RwLock};
 use ppoprf::ppoprf;
 
 use serde::{Deserialize, Serialize};
+use derive_more::{Display, From, Error};
 
 const DEFAULT_EPOCH_DURATION: u64 = 5;
 const DEFAULT_MDS: &str = "116;117;118;119;120";
@@ -59,6 +61,30 @@ struct ServerState {
 }
 type State = Arc<RwLock<ServerState>>;
 
+#[derive(Debug, Error, From, Display)]
+enum ServerError {
+    #[display(fmt = "PPRF error: {}", _0)]
+    PPRF(ppoprf::PPRFError)
+}
+
+#[derive(Serialize)]
+struct ServerErrorResponse {
+    error: String
+}
+
+impl ResponseError for ServerError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .json(ServerErrorResponse { error: format!("{}", self) })
+    }
+
+    fn status_code(&self) -> StatusCode {
+        match *self {
+            ServerError::PPRF(_) => StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
 #[get("/")]
 async fn index() -> &'static str {
     // Simple string to identify the server.
@@ -72,20 +98,21 @@ async fn index() -> &'static str {
 async fn eval(
     state: web::Data<State>,
     data: web::Json<EvalRequest>,
-) -> web::Json<EvalResponse> {
+) -> Result<web::Json<EvalResponse>, ServerError> {
     let state = state.read().unwrap();
+
     // Pass each point from the client through the ppoprf.
-    let result = data
+    let result: Result<Vec<ppoprf::Evaluation>, ppoprf::PPRFError> = data
         .points
         .iter()
         .map(|p| state.prf_server.eval(&p, state.md_idx, false))
         .collect();
 
     // Return the results.
-    web::Json(EvalResponse {
+    Ok(web::Json(EvalResponse {
         name: data.name.clone(),
-        results: result,
-    })
+        results: result?,
+    }))
 }
 
 #[actix_web::main]
@@ -138,7 +165,7 @@ async fn main() -> std::io::Result<()> {
     // We use an RWLock to handle the infrequent puncture events.
     // Only read access is necessary to answer queries.
     let state = Arc::new(RwLock::new(ServerState {
-        prf_server: ppoprf::Server::new(&mds),
+        prf_server: ppoprf::Server::new(&mds).unwrap(),
         md_idx: 0
     }));
 
@@ -151,7 +178,7 @@ async fn main() -> std::io::Result<()> {
             actix_web::rt::time::delay_for(epoch).await;
             if let Ok(mut state) = background_state.write() {
                 log::info!("Epoch rotation: puncturing '{:?}'", md);
-                state.prf_server.puncture(md);
+                state.prf_server.puncture(md).unwrap();
                 state.md_idx += 1;
             }
             log::info!("Epoch rotation complete");
