@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -14,8 +15,9 @@ import (
 
 var (
 	// A valid EC point consists of 64 hex digits.
-	validPoint = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	oneWeek    = time.Hour * 24 * 7
+	validPointRegexp = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	validPoint       = "f6414bfccc156551d641260ce403992c5d5b0976aca8a72541fda40e8337d867"
+	oneWeek          = time.Hour * 24 * 7
 )
 
 func makeReq(getHandler func(*Server) http.HandlerFunc, req *http.Request) (int, string) {
@@ -106,9 +108,9 @@ func TestHTTPHandler(t *testing.T) {
 	}
 
 	// Finally, show mercy and make a valid request.
-	req.URL = u("/randomness?ec_point=f6414bfccc156551d641260ce403992c5d5b0976aca8a72541fda40e8337d867")
+	req.URL = u(fmt.Sprintf("/randomness?ec_point=%s", validPoint))
 	code, resp = makeReq(getRandomnessHandler, req)
-	if !validPoint.MatchString(resp) {
+	if !validPointRegexp.MatchString(resp) {
 		t.Errorf("Server's response (%q) doesn't look like a valid point.", resp)
 	}
 	if code != http.StatusOK {
@@ -116,12 +118,19 @@ func TestHTTPHandler(t *testing.T) {
 	}
 
 	// Ensure that the server is case insensitive.
-	req.URL = u("/randomness?ec_point=F6414BFCCC156551D641260CE403992c5d5b0976aca8a72541fda40e8337d867")
+	req.URL = u(fmt.Sprintf("/randomness?ec_point=%s", strings.ToUpper(validPoint)))
 	code, resp = makeReq(getRandomnessHandler, req)
-	if !validPoint.MatchString(resp) {
+	if !validPointRegexp.MatchString(resp) {
 		t.Errorf("Server's response (%q) doesn't look like a valid point.", resp)
 	}
 	if code != http.StatusOK {
 		t.Errorf("Expected HTTP code %d but got %d.", http.StatusOK, code)
+	}
+}
+
+func BenchmarkHTTPHandler(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/randomness?ec_point=%s", validPoint), nil)
+	for n := 0; n < b.N; n++ {
+		_, _ = makeReq(getRandomnessHandler, req)
 	}
 }
